@@ -11,7 +11,7 @@ import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import AuthScreen from './AuthScreen';
 import AdminPanel from './AdminPanel';
 
-const ADMIN_PHONES = ['+919999999999']; // replace with your admin phone number
+const ADMIN_EMAILS = ['itvertuvm@gmail.com'];
 
 // ============================================================================
 // DATA: Villages, Shops, Products
@@ -292,7 +292,7 @@ export default function App() {
   if (authUser === null) {
     return <AuthScreen onAuthSuccess={user => setAuthUser(user)} lang={lang} />;
   }
-  if (ADMIN_PHONES.includes(authUser.phoneNumber)) {
+  if (ADMIN_EMAILS.includes(authUser.email)) {
     return <AdminPanel user={authUser} />;
   }
 
