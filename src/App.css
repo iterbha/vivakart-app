@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* Prevent overscroll bounce on mobile */
+html, body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth scrolling */
+* {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Hide scrollbars but allow scrolling */
+.overflow-y-auto::-webkit-scrollbar {
+  display: none;
+}
+.overflow-y-auto {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
