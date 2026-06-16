@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Home, ShoppingCart, Package, User, Search, MapPin, Clock, Plus, Minus, 
-  ChevronLeft, ChevronRight, Star, Truck, CheckCircle2, Phone, Calendar, 
+import {
+  Home, ShoppingCart, Package, User, Search, MapPin, Clock, Plus, Minus,
+  ChevronLeft, ChevronRight, Star, Truck, CheckCircle2, Phone, Calendar,
   Users, Globe, Store, Sparkles, Receipt, Tag, IndianRupee, ArrowRight,
-  PartyPopper, Cake, Heart, Flower2, Circle
+  PartyPopper, Cake, Heart, Flower2, Circle, LogOut
 } from 'lucide-react';
+import { auth, db } from './firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import AuthScreen from './AuthScreen';
+import AdminPanel from './AdminPanel';
+
+const ADMIN_PHONES = ['+919999999999']; // replace with your admin phone number
 
 // ============================================================================
 // DATA: Villages, Shops, Products
@@ -185,9 +192,15 @@ const CATEGORIES = [
 // MAIN APP
 // ============================================================================
 export default function App() {
+  const [authUser, setAuthUser] = useState(undefined); // undefined = loading, null = not logged in
   const [screen, setScreen] = useState('splash'); // splash, villageSelect, home, shops, products, cart, checkout, confirm, track, orders, profile
   const [lang, setLang] = useState('en');
   const [village, setVillage] = useState(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, user => setAuthUser(user ?? null));
+    return unsub;
+  }, []);
   const [cart, setCart] = useState({}); // { productId: { product, shopId, qty } }
   const [currentShop, setCurrentShop] = useState(null);
   const [activeCategory, setActiveCategory] = useState(null);
@@ -239,24 +252,49 @@ export default function App() {
     return eta.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  // Place order
-  const placeOrder = () => {
+  // Place order — saves to Firestore
+  const placeOrder = async () => {
     const order = {
       id: 'UB' + Date.now().toString().slice(-8),
       placedAt: new Date(),
       eta: getETA(),
       items: cartItems,
-      total: cartTotal, // free delivery
+      total: cartTotal,
       village: village,
+      phone: authUser?.phoneNumber || '',
+      uid: authUser?.uid || '',
       ...orderDetails,
       status: 'CONFIRMED',
       statusIdx: 0,
     };
+    try {
+      await addDoc(collection(db, 'orders'), { ...order, placedAt: Timestamp.now() });
+    } catch {
+      // still show confirm even if offline
+    }
     setCompletedOrder(order);
     setOrderHistory(prev => [order, ...prev]);
     setCart({});
     setScreen('confirm');
   };
+
+  // ===== AUTH GUARD =====
+  if (authUser === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-500 to-rose-600">
+        <div className="text-white text-center">
+          <div className="text-5xl mb-4">🛒</div>
+          <div className="font-bold text-xl">VIVAKART</div>
+        </div>
+      </div>
+    );
+  }
+  if (authUser === null) {
+    return <AuthScreen onAuthSuccess={user => setAuthUser(user)} lang={lang} />;
+  }
+  if (ADMIN_PHONES.includes(authUser.phoneNumber)) {
+    return <AdminPanel user={authUser} />;
+  }
 
   // ===== RENDER PHONE FRAME =====
   return (
@@ -287,7 +325,7 @@ export default function App() {
             {screen === 'confirm' && completedOrder && <ConfirmScreen t={t} lang={lang} order={completedOrder} onTrack={() => setScreen('track')} onContinue={() => setScreen('home')} />}
             {screen === 'track' && completedOrder && <TrackScreen t={t} lang={lang} order={completedOrder} onBack={() => setScreen('orders')} />}
             {screen === 'orders' && <OrdersScreen t={t} lang={lang} orders={orderHistory} onView={(o) => { setCompletedOrder(o); setScreen('track'); }} />}
-            {screen === 'profile' && <ProfileScreen t={t} lang={lang} setLang={setLang} village={village} setScreen={setScreen} openLanguage={openLanguage} />}
+            {screen === 'profile' && <ProfileScreen t={t} lang={lang} setLang={setLang} village={village} setScreen={setScreen} openLanguage={openLanguage} authUser={authUser} />}
             {screen === 'language' && <LanguageScreen t={t} currentLang={lang} setLang={setLang} onBack={() => setScreen(previousScreen)} />}
           </div>
 
@@ -1051,7 +1089,7 @@ function OrdersScreen({ t, lang, orders, onView }) {
 // ============================================================================
 // SCREEN: Profile
 // ============================================================================
-function ProfileScreen({ t, lang, setLang, village, setScreen, openLanguage }) {
+function ProfileScreen({ t, lang, setLang, village, setScreen, openLanguage, authUser }) {
   return (
     <div className="p-5">
       <h1 className="text-xl font-bold text-stone-900 mb-4 pt-2">{t.profileTitle}</h1>
@@ -1060,7 +1098,7 @@ function ProfileScreen({ t, lang, setLang, village, setScreen, openLanguage }) {
         <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-3">
           <User className="w-8 h-8" />
         </div>
-        <div className="font-bold text-lg">{lang === 'en' ? 'Guest User' : 'अतिथि उपयोगकर्ता'}</div>
+        <div className="font-bold text-lg">{authUser?.phoneNumber || (lang === 'en' ? 'Guest User' : 'अतिथि उपयोगकर्ता')}</div>
         <div className="text-xs text-orange-100 mt-0.5 flex items-center gap-1">
           <MapPin className="w-3 h-3" /> {lang === 'en' ? village?.name : village?.hindi}, PIN {village?.pin}
         </div>
@@ -1078,11 +1116,15 @@ function ProfileScreen({ t, lang, setLang, village, setScreen, openLanguage }) {
           <span className="flex-1 text-left font-medium text-stone-900 text-sm">{t.changeVillage}</span>
           <ChevronRight className="w-4 h-4 text-stone-400" />
         </button>
-        <button className="w-full p-4 flex items-center gap-3 active:bg-stone-50">
+        <button className="w-full p-4 flex items-center gap-3 border-b border-stone-100 active:bg-stone-50">
           <Phone className="w-5 h-5 text-orange-600" />
           <span className="flex-1 text-left font-medium text-stone-900 text-sm">{t.helpline}</span>
           <span className="text-xs text-stone-500">+91 9XXXXXXXXX</span>
           <ChevronRight className="w-4 h-4 text-stone-400" />
+        </button>
+        <button onClick={() => signOut(auth)} className="w-full p-4 flex items-center gap-3 active:bg-stone-50 text-red-500">
+          <LogOut className="w-5 h-5" />
+          <span className="flex-1 text-left font-medium text-sm">{lang === 'en' ? 'Sign Out' : 'साइन आउट'}</span>
         </button>
       </div>
 
