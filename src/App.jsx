@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, Timestamp } from 'firebase/firestore';
 import AuthScreen from './AuthScreen';
 import AdminPanel from './AdminPanel';
 
@@ -223,10 +223,10 @@ export default function App() {
   const t = T[lang];
 
   // Cart helpers
-  const addToCart = (product, shopId) => {
+  const addToCart = (product, shopId, shopName) => {
     setCart(prev => {
       const existing = prev[product.id];
-      return { ...prev, [product.id]: { product, shopId, qty: (existing?.qty || 0) + 1 } };
+      return { ...prev, [product.id]: { product, shopId, shopName: shopName || '', qty: (existing?.qty || 0) + 1 } };
     });
   };
   const updateQty = (productId, delta) => {
@@ -254,24 +254,27 @@ export default function App() {
 
   // Place order — saves to Firestore
   const placeOrder = async () => {
+    const snapshot = [...cartItems]; // capture before clearing
     const order = {
       id: 'UB' + Date.now().toString().slice(-8),
-      placedAt: new Date(),
+      placedAt: new Date().toISOString(),
       eta: getETA(),
-      items: cartItems,
+      items: snapshot,
       total: cartTotal,
-      village: village,
+      village: village || {},
       phone: authUser?.phoneNumber || '',
+      email: authUser?.email || '',
       uid: authUser?.uid || '',
-      ...orderDetails,
+      functionType: orderDetails.functionType || '',
+      functionDate: orderDetails.functionDate || '',
+      guestCount: orderDetails.guestCount || '',
+      address: orderDetails.address || '',
+      paymentMode: orderDetails.paymentMode || 'cod',
       status: 'CONFIRMED',
       statusIdx: 0,
     };
-    try {
-      await addDoc(collection(db, 'orders'), { ...order, placedAt: Timestamp.now() });
-    } catch {
-      // still show confirm even if offline
-    }
+    // Save to Firestore — don't block UI on failure
+    addDoc(collection(db, 'orders'), { ...order, placedAt: Timestamp.now() }).catch(() => {});
     setCompletedOrder(order);
     setOrderHistory(prev => [order, ...prev]);
     setCart({});
@@ -518,9 +521,19 @@ function HomeScreen({ t, lang, village, setScreen, setActiveCategory, setLang, s
 // SCREEN: Shops list
 // ============================================================================
 function ShopsScreen({ t, lang, activeCategory, setCurrentShop, setScreen, setActiveCategory }) {
-  const shopsToShow = activeCategory 
-    ? SHOPS.filter(s => activeCategory.shopIds.includes(s.id))
-    : SHOPS;
+  const [firestoreShops, setFirestoreShops] = useState([]);
+
+  useEffect(() => {
+    getDocs(collection(db, 'shops')).then(snap => {
+      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setFirestoreShops(fetched);
+    });
+  }, []);
+
+  const allShops = [...SHOPS, ...firestoreShops];
+  const shopsToShow = activeCategory
+    ? allShops.filter(s => activeCategory.shopIds?.includes(s.id))
+    : allShops;
 
   return (
     <div className="p-5">
@@ -575,7 +588,15 @@ function ShopsScreen({ t, lang, activeCategory, setCurrentShop, setScreen, setAc
 // SCREEN: Products of a shop
 // ============================================================================
 function ProductsScreen({ t, lang, shop, cart, addToCart, updateQty, onBack }) {
-  const products = PRODUCTS[shop.id] || [];
+  const [firestoreProducts, setFirestoreProducts] = useState([]);
+
+  useEffect(() => {
+    getDocs(collection(db, 'shops', String(shop.id), 'products')).then(snap => {
+      setFirestoreProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+  }, [shop.id]);
+
+  const products = firestoreProducts.length > 0 ? firestoreProducts : (PRODUCTS[shop.id] || []);
   const categories = [...new Set(products.map(p => p.cat))];
 
   return (
@@ -636,7 +657,7 @@ function ProductsScreen({ t, lang, shop, cart, addToCart, updateQty, onBack }) {
                       </div>
                     ) : (
                       <button 
-                        onClick={() => addToCart(p, shop.id)} 
+                        onClick={() => addToCart(p, shop.id, shop.name)}
                         className="bg-orange-500 text-white font-bold text-xs px-4 py-2 rounded-xl active:bg-orange-600 active:scale-95 transition"
                       >
                         {t.addToCart} +
@@ -685,11 +706,12 @@ function CartScreen({ t, lang, cartItems, cartTotal, updateQty, onCheckout, setS
 
       {Object.entries(byShop).map(([shopId, items]) => {
         const shop = SHOPS.find(s => s.id === parseInt(shopId));
+        const shopName = shop ? (lang === 'en' ? shop.name : shop.hindi) : (items[0]?.shopName || 'Shop');
         return (
           <div key={shopId} className="bg-white border border-stone-200 rounded-2xl p-4 mb-3">
             <div className="flex items-center gap-2 pb-3 border-b border-stone-100">
               <Store className="w-4 h-4 text-orange-600" />
-              <span className="font-semibold text-sm text-stone-900">{lang === 'en' ? shop.name : shop.hindi}</span>
+              <span className="font-semibold text-sm text-stone-900">{shopName}</span>
             </div>
             {items.map(item => (
               <div key={item.product.id} className="flex items-center gap-3 py-3 border-b border-stone-50 last:border-0">
@@ -753,7 +775,7 @@ function CartScreen({ t, lang, cartItems, cartTotal, updateQty, onCheckout, setS
 // SCREEN: Checkout
 // ============================================================================
 function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDetails, onPlace, onBack, eta }) {
-  const canPlace = orderDetails.functionType && orderDetails.functionDate && orderDetails.guestCount && orderDetails.address;
+  const canPlace = orderDetails.address && orderDetails.address.trim().length > 3;
 
   return (
     <div className="p-5">
@@ -889,7 +911,7 @@ function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDet
       </div>
       {!canPlace && (
         <p className="text-xs text-rose-600 text-center">
-          {lang === 'en' ? 'Please fill all function details to proceed' : 'कृपया सभी विवरण भरें'}
+          {lang === 'en' ? 'Please enter your delivery address to proceed' : 'कृपया डिलीवरी पता भरें'}
         </p>
       )}
     </div>
