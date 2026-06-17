@@ -3,7 +3,7 @@ import {
   Home, ShoppingCart, Package, User, Search, MapPin, Clock, Plus, Minus,
   ChevronLeft, ChevronRight, Star, Truck, CheckCircle2, Phone, Calendar,
   Users, Globe, Store, Sparkles, Receipt, Tag, IndianRupee, ArrowRight,
-  PartyPopper, Cake, Heart, Flower2, Circle, LogOut
+  PartyPopper, Cake, Heart, Flower2, Circle, LogOut, Loader
 } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -253,7 +253,7 @@ export default function App() {
   };
 
   // Place order — saves to Firestore
-  const placeOrder = async () => {
+  const placeOrder = async ({ paymentId = '', paymentMode } = {}) => {
     const snapshot = [...cartItems]; // capture before clearing
     const order = {
       id: 'UB' + Date.now().toString().slice(-8),
@@ -269,7 +269,8 @@ export default function App() {
       functionDate: orderDetails.functionDate || '',
       guestCount: orderDetails.guestCount || '',
       address: orderDetails.address || '',
-      paymentMode: orderDetails.paymentMode || 'cod',
+      paymentMode: paymentMode || orderDetails.paymentMode || 'cod',
+      paymentId: paymentId || '',
       status: 'CONFIRMED',
       statusIdx: 0,
     };
@@ -324,7 +325,7 @@ export default function App() {
             {screen === 'shops' && <ShopsScreen t={t} lang={lang} activeCategory={activeCategory} setCurrentShop={setCurrentShop} setScreen={setScreen} setActiveCategory={setActiveCategory} />}
             {screen === 'products' && currentShop && <ProductsScreen t={t} lang={lang} shop={currentShop} cart={cart} addToCart={addToCart} updateQty={updateQty} onBack={() => setScreen('shops')} />}
             {screen === 'cart' && <CartScreen t={t} lang={lang} cartItems={cartItems} cartTotal={cartTotal} updateQty={updateQty} onCheckout={() => setScreen('checkout')} setScreen={setScreen} />}
-            {screen === 'checkout' && <CheckoutScreen t={t} lang={lang} cartTotal={cartTotal} village={village} orderDetails={orderDetails} setOrderDetails={setOrderDetails} onPlace={placeOrder} onBack={() => setScreen('cart')} eta={getETA()} />}
+            {screen === 'checkout' && <CheckoutScreen t={t} lang={lang} cartTotal={cartTotal} village={village} orderDetails={orderDetails} setOrderDetails={setOrderDetails} onPlace={placeOrder} onBack={() => setScreen('cart')} eta={getETA()} authUser={authUser} />}
             {screen === 'confirm' && completedOrder && <ConfirmScreen t={t} lang={lang} order={completedOrder} onTrack={() => setScreen('track')} onContinue={() => setScreen('home')} />}
             {screen === 'track' && completedOrder && <TrackScreen t={t} lang={lang} order={completedOrder} onBack={() => setScreen('orders')} />}
             {screen === 'orders' && <OrdersScreen t={t} lang={lang} orders={orderHistory} onView={(o) => { setCompletedOrder(o); setScreen('track'); }} />}
@@ -774,8 +775,58 @@ function CartScreen({ t, lang, cartItems, cartTotal, updateQty, onCheckout, setS
 // ============================================================================
 // SCREEN: Checkout
 // ============================================================================
-function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDetails, onPlace, onBack, eta }) {
+function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDetails, onPlace, onBack, eta, authUser }) {
   const canPlace = orderDetails.address && orderDetails.address.trim().length > 3;
+  const [payLoading, setPayLoading] = useState(false);
+  const [payError, setPayError] = useState('');
+
+  const loadRazorpayScript = () =>
+    new Promise(resolve => {
+      if (window.Razorpay) return resolve(true);
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+
+  const handlePayNow = async () => {
+    setPayError('');
+    setPayLoading(true);
+    const loaded = await loadRazorpayScript();
+    if (!loaded) {
+      setPayError('Payment service unavailable. Try COD.');
+      setPayLoading(false);
+      return;
+    }
+    const options = {
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+      amount: cartTotal * 100, // paise
+      currency: 'INR',
+      name: 'VIVAKART',
+      description: `Order from ${village?.name || 'your village'}`,
+      image: 'https://via.placeholder.com/150/FF6B00/FFFFFF?text=V',
+      prefill: {
+        name: authUser?.displayName || '',
+        email: authUser?.email || '',
+        contact: authUser?.phoneNumber || '',
+      },
+      theme: { color: '#f97316' },
+      handler: function (response) {
+        onPlace({ paymentId: response.razorpay_payment_id, paymentMode: 'online' });
+      },
+      modal: {
+        ondismiss: () => setPayLoading(false),
+      },
+    };
+    const rzp = new window.Razorpay(options);
+    rzp.on('payment.failed', () => {
+      setPayError('Payment failed. Please try again or use COD.');
+      setPayLoading(false);
+    });
+    rzp.open();
+    setPayLoading(false);
+  };
 
   return (
     <div className="p-5">
@@ -943,19 +994,37 @@ function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDet
       </div>
 
       {/* Total + Place Order */}
-      <div className="bg-white border border-stone-200 rounded-2xl p-4 mb-3 flex items-center justify-between">
-        <div>
-          <div className="text-xs text-stone-500">{t.cartTotal}</div>
-          <div className="font-bold text-xl text-stone-900">₹{cartTotal}</div>
+      <div className="bg-white border border-stone-200 rounded-2xl p-4 mb-3">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-xs text-stone-500">{t.cartTotal}</div>
+            <div className="font-bold text-xl text-stone-900">₹{cartTotal}</div>
+          </div>
+          <div className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-lg">
+            {lang === 'en' ? 'FREE Delivery' : 'मुफ़्त डिलीवरी'}
+          </div>
         </div>
-        <button 
-          onClick={onPlace}
-          disabled={!canPlace}
-          className={`font-bold px-6 py-3.5 rounded-2xl text-sm shadow-lg flex items-center gap-2 transition ${canPlace ? 'bg-orange-500 text-white active:bg-orange-600 active:scale-95' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
-        >
-          {t.placeOrder}
-          <ArrowRight className="w-4 h-4" />
-        </button>
+
+        {orderDetails.paymentMode === 'cod' ? (
+          <button
+            onClick={() => onPlace({})}
+            disabled={!canPlace}
+            className={`w-full font-bold py-4 rounded-2xl text-sm shadow-lg flex items-center justify-center gap-2 transition ${canPlace ? 'bg-orange-500 text-white active:bg-orange-600 active:scale-95' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
+          >
+            💵 {lang === 'en' ? 'Place Order (Pay on Delivery)' : 'ऑर्डर करें (डिलीवरी पर भुगतान)'}
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={handlePayNow}
+            disabled={!canPlace || payLoading}
+            className={`w-full font-bold py-4 rounded-2xl text-sm shadow-lg flex items-center justify-center gap-2 transition ${canPlace ? 'bg-gradient-to-r from-orange-500 to-rose-600 text-white active:scale-95' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
+          >
+            {payLoading ? <><Loader className="w-4 h-4 animate-spin" /> {lang === 'en' ? 'Opening Payment...' : 'भुगतान खुल रहा है...'}</> : <>💳 {lang === 'en' ? `Pay ₹${cartTotal} Now` : `₹${cartTotal} अभी भुगतान करें`} <ArrowRight className="w-4 h-4" /></>}
+          </button>
+        )}
+
+        {payError && <p className="text-xs text-red-500 text-center mt-2">{payError}</p>}
       </div>
       {!canPlace && (
         <p className="text-xs text-rose-600 text-center">
