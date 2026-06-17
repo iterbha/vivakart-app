@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Home, ShoppingCart, Package, User, Search, MapPin, Clock, Plus, Minus, 
-  ChevronLeft, ChevronRight, Star, Truck, CheckCircle2, Phone, Calendar, 
+import {
+  Home, ShoppingCart, Package, User, Search, MapPin, Clock, Plus, Minus,
+  ChevronLeft, ChevronRight, Star, Truck, CheckCircle2, Phone, Calendar,
   Users, Globe, Store, Sparkles, Receipt, Tag, IndianRupee, ArrowRight,
-  PartyPopper, Cake, Heart, Flower2, Circle
+  PartyPopper, Cake, Heart, Flower2, Circle, LogOut, Loader
 } from 'lucide-react';
+import { auth, db } from './firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { collection, addDoc, getDocs, Timestamp, query, where } from 'firebase/firestore';
+import AuthScreen from './AuthScreen';
+import AdminPanel from './AdminPanel';
+import ShopkeeperPanel from './ShopkeeperPanel';
+
+const ADMIN_EMAILS = ['itvertuvm@gmail.com'];
 
 // ============================================================================
 // DATA: Villages, Shops, Products
@@ -185,9 +193,27 @@ const CATEGORIES = [
 // MAIN APP
 // ============================================================================
 export default function App() {
+  const [authUser, setAuthUser] = useState(undefined); // undefined = loading, null = not logged in
   const [screen, setScreen] = useState('splash'); // splash, villageSelect, home, shops, products, cart, checkout, confirm, track, orders, profile
   const [lang, setLang] = useState('en');
   const [village, setVillage] = useState(null);
+
+  const [shopkeeperShop, setShopkeeperShop] = useState(undefined); // undefined=checking, null=not shopkeeper
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async user => {
+      setAuthUser(user ?? null);
+      if (user && !ADMIN_EMAILS.includes(user.email)) {
+        // Check if this email is a shopkeeper
+        const snap = await getDocs(collection(db, 'shops'));
+        const match = snap.docs.find(d => d.data().shopkeeperEmail === user.email);
+        setShopkeeperShop(match ? { id: match.id, ...match.data() } : null);
+      } else {
+        setShopkeeperShop(null);
+      }
+    });
+    return unsub;
+  }, []);
   const [cart, setCart] = useState({}); // { productId: { product, shopId, qty } }
   const [currentShop, setCurrentShop] = useState(null);
   const [activeCategory, setActiveCategory] = useState(null);
@@ -196,7 +222,7 @@ export default function App() {
     functionDate: '',
     guestCount: '',
     address: '',
-    paymentMode: 'upi',
+    paymentMode: 'cod',
   });
   const [completedOrder, setCompletedOrder] = useState(null);
   const [orderHistory, setOrderHistory] = useState([]);
@@ -210,10 +236,10 @@ export default function App() {
   const t = T[lang];
 
   // Cart helpers
-  const addToCart = (product, shopId) => {
+  const addToCart = (product, shopId, shopName) => {
     setCart(prev => {
       const existing = prev[product.id];
-      return { ...prev, [product.id]: { product, shopId, qty: (existing?.qty || 0) + 1 } };
+      return { ...prev, [product.id]: { product, shopId, shopName: shopName || '', qty: (existing?.qty || 0) + 1 } };
     });
   };
   const updateQty = (productId, delta) => {
@@ -239,24 +265,66 @@ export default function App() {
     return eta.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  // Place order
-  const placeOrder = () => {
+  // Place order — saves to Firestore
+  const placeOrder = async ({ paymentId = '', paymentMode } = {}) => {
+    const snapshot = [...cartItems]; // capture before clearing
     const order = {
       id: 'UB' + Date.now().toString().slice(-8),
-      placedAt: new Date(),
+      placedAt: new Date().toISOString(),
       eta: getETA(),
-      items: cartItems,
-      total: cartTotal, // free delivery
-      village: village,
-      ...orderDetails,
+      items: snapshot,
+      total: cartTotal,
+      village: village || {},
+      phone: authUser?.phoneNumber || '',
+      email: authUser?.email || '',
+      uid: authUser?.uid || '',
+      functionType: orderDetails.functionType || '',
+      functionDate: orderDetails.functionDate || '',
+      guestCount: orderDetails.guestCount || '',
+      address: orderDetails.address || '',
+      paymentMode: paymentMode || orderDetails.paymentMode || 'cod',
+      paymentId: paymentId || '',
       status: 'CONFIRMED',
       statusIdx: 0,
     };
+    // Save to Firestore — don't block UI on failure
+    addDoc(collection(db, 'orders'), { ...order, placedAt: Timestamp.now() }).catch(() => {});
     setCompletedOrder(order);
     setOrderHistory(prev => [order, ...prev]);
     setCart({});
     setScreen('confirm');
   };
+
+  // ===== AUTH GUARD =====
+  if (authUser === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-500 to-rose-600">
+        <div className="text-white text-center">
+          <div className="text-5xl mb-4">🛒</div>
+          <div className="font-bold text-xl">VIVAKART</div>
+        </div>
+      </div>
+    );
+  }
+  if (authUser === null) {
+    return <AuthScreen onAuthSuccess={user => setAuthUser(user)} lang={lang} />;
+  }
+  if (ADMIN_EMAILS.includes(authUser.email)) {
+    return <AdminPanel user={authUser} />;
+  }
+  if (shopkeeperShop === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-500 to-rose-600">
+        <div className="text-white text-center">
+          <div className="text-5xl mb-4">🛒</div>
+          <div className="font-bold text-xl">Loading...</div>
+        </div>
+      </div>
+    );
+  }
+  if (shopkeeperShop) {
+    return <ShopkeeperPanel user={authUser} shop={shopkeeperShop} />;
+  }
 
   // ===== RENDER PHONE FRAME =====
   return (
@@ -283,11 +351,11 @@ export default function App() {
             {screen === 'shops' && <ShopsScreen t={t} lang={lang} activeCategory={activeCategory} setCurrentShop={setCurrentShop} setScreen={setScreen} setActiveCategory={setActiveCategory} />}
             {screen === 'products' && currentShop && <ProductsScreen t={t} lang={lang} shop={currentShop} cart={cart} addToCart={addToCart} updateQty={updateQty} onBack={() => setScreen('shops')} />}
             {screen === 'cart' && <CartScreen t={t} lang={lang} cartItems={cartItems} cartTotal={cartTotal} updateQty={updateQty} onCheckout={() => setScreen('checkout')} setScreen={setScreen} />}
-            {screen === 'checkout' && <CheckoutScreen t={t} lang={lang} cartTotal={cartTotal} village={village} orderDetails={orderDetails} setOrderDetails={setOrderDetails} onPlace={placeOrder} onBack={() => setScreen('cart')} eta={getETA()} />}
+            {screen === 'checkout' && <CheckoutScreen t={t} lang={lang} cartTotal={cartTotal} village={village} orderDetails={orderDetails} setOrderDetails={setOrderDetails} onPlace={placeOrder} onBack={() => setScreen('cart')} eta={getETA()} authUser={authUser} />}
             {screen === 'confirm' && completedOrder && <ConfirmScreen t={t} lang={lang} order={completedOrder} onTrack={() => setScreen('track')} onContinue={() => setScreen('home')} />}
             {screen === 'track' && completedOrder && <TrackScreen t={t} lang={lang} order={completedOrder} onBack={() => setScreen('orders')} />}
             {screen === 'orders' && <OrdersScreen t={t} lang={lang} orders={orderHistory} onView={(o) => { setCompletedOrder(o); setScreen('track'); }} />}
-            {screen === 'profile' && <ProfileScreen t={t} lang={lang} setLang={setLang} village={village} setScreen={setScreen} openLanguage={openLanguage} />}
+            {screen === 'profile' && <ProfileScreen t={t} lang={lang} setLang={setLang} village={village} setScreen={setScreen} openLanguage={openLanguage} authUser={authUser} />}
             {screen === 'language' && <LanguageScreen t={t} currentLang={lang} setLang={setLang} onBack={() => setScreen(previousScreen)} />}
           </div>
 
@@ -480,9 +548,19 @@ function HomeScreen({ t, lang, village, setScreen, setActiveCategory, setLang, s
 // SCREEN: Shops list
 // ============================================================================
 function ShopsScreen({ t, lang, activeCategory, setCurrentShop, setScreen, setActiveCategory }) {
-  const shopsToShow = activeCategory 
-    ? SHOPS.filter(s => activeCategory.shopIds.includes(s.id))
-    : SHOPS;
+  const [firestoreShops, setFirestoreShops] = useState([]);
+
+  useEffect(() => {
+    getDocs(collection(db, 'shops')).then(snap => {
+      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setFirestoreShops(fetched);
+    });
+  }, []);
+
+  const allShops = [...SHOPS, ...firestoreShops];
+  const shopsToShow = activeCategory
+    ? allShops.filter(s => activeCategory.shopIds?.includes(s.id))
+    : allShops;
 
   return (
     <div className="p-5">
@@ -537,7 +615,15 @@ function ShopsScreen({ t, lang, activeCategory, setCurrentShop, setScreen, setAc
 // SCREEN: Products of a shop
 // ============================================================================
 function ProductsScreen({ t, lang, shop, cart, addToCart, updateQty, onBack }) {
-  const products = PRODUCTS[shop.id] || [];
+  const [firestoreProducts, setFirestoreProducts] = useState([]);
+
+  useEffect(() => {
+    getDocs(collection(db, 'shops', String(shop.id), 'products')).then(snap => {
+      setFirestoreProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+  }, [shop.id]);
+
+  const products = firestoreProducts.length > 0 ? firestoreProducts : (PRODUCTS[shop.id] || []);
   const categories = [...new Set(products.map(p => p.cat))];
 
   return (
@@ -598,7 +684,7 @@ function ProductsScreen({ t, lang, shop, cart, addToCart, updateQty, onBack }) {
                       </div>
                     ) : (
                       <button 
-                        onClick={() => addToCart(p, shop.id)} 
+                        onClick={() => addToCart(p, shop.id, shop.name)}
                         className="bg-orange-500 text-white font-bold text-xs px-4 py-2 rounded-xl active:bg-orange-600 active:scale-95 transition"
                       >
                         {t.addToCart} +
@@ -647,11 +733,12 @@ function CartScreen({ t, lang, cartItems, cartTotal, updateQty, onCheckout, setS
 
       {Object.entries(byShop).map(([shopId, items]) => {
         const shop = SHOPS.find(s => s.id === parseInt(shopId));
+        const shopName = shop ? (lang === 'en' ? shop.name : shop.hindi) : (items[0]?.shopName || 'Shop');
         return (
           <div key={shopId} className="bg-white border border-stone-200 rounded-2xl p-4 mb-3">
             <div className="flex items-center gap-2 pb-3 border-b border-stone-100">
               <Store className="w-4 h-4 text-orange-600" />
-              <span className="font-semibold text-sm text-stone-900">{lang === 'en' ? shop.name : shop.hindi}</span>
+              <span className="font-semibold text-sm text-stone-900">{shopName}</span>
             </div>
             {items.map(item => (
               <div key={item.product.id} className="flex items-center gap-3 py-3 border-b border-stone-50 last:border-0">
@@ -714,8 +801,61 @@ function CartScreen({ t, lang, cartItems, cartTotal, updateQty, onCheckout, setS
 // ============================================================================
 // SCREEN: Checkout
 // ============================================================================
-function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDetails, onPlace, onBack, eta }) {
-  const canPlace = orderDetails.functionType && orderDetails.functionDate && orderDetails.guestCount && orderDetails.address;
+function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDetails, onPlace, onBack, eta, authUser }) {
+  const canPlace = orderDetails.address && orderDetails.address.trim().length > 3;
+  const [payLoading, setPayLoading] = useState(false);
+  const [payError, setPayError] = useState('');
+
+  const loadRazorpayScript = () =>
+    new Promise(resolve => {
+      if (window.Razorpay) return resolve(true);
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+
+  const handlePayNow = async () => {
+    setPayError('');
+    setPayLoading(true);
+    const loaded = await loadRazorpayScript();
+    if (!loaded) {
+      setPayError('Payment service unavailable. Try COD.');
+      setPayLoading(false);
+      return;
+    }
+    const options = {
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+      amount: cartTotal * 100,
+      currency: 'INR',
+      name: 'VIVAKART',
+      description: `Grocery order - ${village?.name || 'Jamui'}`,
+      prefill: {
+        name: authUser?.displayName || 'Customer',
+        email: authUser?.email || '',
+        contact: '9999999999',
+      },
+      notes: {
+        address: orderDetails.address,
+        village: village?.name || '',
+      },
+      theme: { color: '#f97316' },
+      handler: function (response) {
+        setPayLoading(false);
+        onPlace({ paymentId: response.razorpay_payment_id, paymentMode: 'online' });
+      },
+      modal: {
+        ondismiss: () => setPayLoading(false),
+      },
+    };
+    const rzp = new window.Razorpay(options);
+    rzp.on('payment.failed', function () {
+      setPayError('Payment failed. Please try again or use COD.');
+      setPayLoading(false);
+    });
+    rzp.open();
+  };
 
   return (
     <div className="p-5">
@@ -814,44 +954,66 @@ function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDet
         <label className="font-bold text-stone-900 text-sm mb-3 block">{t.paymentMode}</label>
         <div className="space-y-2">
           {[
-            { id: 'upi', label: t.upi, emoji: '📱' },
-            { id: 'card', label: t.card, emoji: '💳' },
-            { id: 'netbanking', label: t.netbanking, emoji: '🏦' },
-            { id: 'cod', label: t.cod, emoji: '💵' },
+            { id: 'cod',        label: lang === 'en' ? 'Cash on Delivery' : 'डिलीवरी पर नकद', emoji: '💵', sub: lang === 'en' ? 'Pay when your order arrives' : 'सामान आने पर भुगतान करें' },
+            { id: 'upi',        label: lang === 'en' ? 'UPI / PhonePe / GPay' : 'UPI / फोनपे / गूगलपे', emoji: '📱', sub: lang === 'en' ? 'Pay instantly via UPI' : 'UPI से तुरंत भुगतान करें' },
+            { id: 'card',       label: lang === 'en' ? 'Credit / Debit Card' : 'क्रेडिट / डेबिट कार्ड', emoji: '💳', sub: lang === 'en' ? 'Visa, Mastercard, Rupay' : 'वीजा, मास्टरकार्ड, रुपे' },
+            { id: 'netbanking', label: lang === 'en' ? 'Net Banking' : 'नेट बैंकिंग', emoji: '🏦', sub: lang === 'en' ? 'All major banks supported' : 'सभी बड़े बैंक उपलब्ध' },
           ].map(p => (
-            <button 
+            <button
               key={p.id}
               onClick={() => setOrderDetails(prev => ({ ...prev, paymentMode: p.id }))}
-              className={`w-full p-3 rounded-xl border-2 flex items-center gap-3 transition ${orderDetails.paymentMode === p.id ? 'border-orange-500 bg-orange-50' : 'border-stone-200 bg-white'}`}
+              className={`w-full p-3.5 rounded-xl border-2 flex items-center gap-3 transition text-left ${orderDetails.paymentMode === p.id ? 'border-orange-500 bg-orange-50' : 'border-stone-200 bg-white'}`}
             >
               <span className="text-2xl">{p.emoji}</span>
-              <span className="font-semibold text-sm text-stone-900 flex-1 text-left">{p.label}</span>
-              <div className={`w-5 h-5 rounded-full border-2 ${orderDetails.paymentMode === p.id ? 'border-orange-500 bg-orange-500' : 'border-stone-300'}`}>
-                {orderDetails.paymentMode === p.id && <CheckCircle2 className="w-full h-full text-white" />}
+              <div className="flex-1">
+                <div className="font-semibold text-sm text-stone-900">{p.label}</div>
+                <div className="text-xs text-stone-500 mt-0.5">{p.sub}</div>
+              </div>
+              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${orderDetails.paymentMode === p.id ? 'border-orange-500 bg-orange-500' : 'border-stone-300'}`}>
+                {orderDetails.paymentMode === p.id && <div className="w-2 h-2 bg-white rounded-full" />}
               </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Total + Place Order */}
-      <div className="bg-white border border-stone-200 rounded-2xl p-4 mb-3 flex items-center justify-between">
-        <div>
-          <div className="text-xs text-stone-500">{t.cartTotal}</div>
-          <div className="font-bold text-xl text-stone-900">₹{cartTotal}</div>
+      {/* Total + Action Button */}
+      <div className="bg-white border border-stone-200 rounded-2xl p-4 mb-3">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-xs text-stone-500">{t.cartTotal}</div>
+            <div className="font-bold text-2xl text-stone-900">₹{cartTotal}</div>
+          </div>
+          <div className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-lg">
+            {lang === 'en' ? '🚚 FREE Delivery' : '🚚 मुफ़्त डिलीवरी'}
+          </div>
         </div>
-        <button 
-          onClick={onPlace}
-          disabled={!canPlace}
-          className={`font-bold px-6 py-3.5 rounded-2xl text-sm shadow-lg flex items-center gap-2 transition ${canPlace ? 'bg-orange-500 text-white active:bg-orange-600 active:scale-95' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
-        >
-          {t.placeOrder}
-          <ArrowRight className="w-4 h-4" />
-        </button>
+
+        {orderDetails.paymentMode === 'cod' ? (
+          <button
+            onClick={() => onPlace({ paymentMode: 'cod' })}
+            disabled={!canPlace}
+            className={`w-full font-bold py-4 rounded-2xl text-base flex items-center justify-center gap-2 transition ${canPlace ? 'bg-orange-500 text-white active:bg-orange-600 active:scale-95 shadow-lg' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
+          >
+            💵 {lang === 'en' ? 'Place Order — Pay on Delivery' : 'ऑर्डर करें — डिलीवरी पर भुगतान'} <ArrowRight className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={handlePayNow}
+            disabled={!canPlace || payLoading}
+            className={`w-full font-bold py-4 rounded-2xl text-base flex items-center justify-center gap-2 transition ${canPlace ? 'bg-gradient-to-r from-orange-500 to-rose-600 text-white active:scale-95 shadow-lg' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
+          >
+            {payLoading
+              ? <><Loader className="w-4 h-4 animate-spin" /> {lang === 'en' ? 'Opening Payment...' : 'खुल रहा है...'}</>
+              : <>💳 {lang === 'en' ? `Pay ₹${cartTotal} Now` : `₹${cartTotal} अभी भुगतान करें`} <ArrowRight className="w-4 h-4" /></>}
+          </button>
+        )}
+
+        {payError && <p className="text-xs text-red-500 text-center mt-2">{payError}</p>}
       </div>
       {!canPlace && (
         <p className="text-xs text-rose-600 text-center">
-          {lang === 'en' ? 'Please fill all function details to proceed' : 'कृपया सभी विवरण भरें'}
+          {lang === 'en' ? 'Please enter your delivery address to proceed' : 'कृपया डिलीवरी पता भरें'}
         </p>
       )}
     </div>
@@ -1051,7 +1213,7 @@ function OrdersScreen({ t, lang, orders, onView }) {
 // ============================================================================
 // SCREEN: Profile
 // ============================================================================
-function ProfileScreen({ t, lang, setLang, village, setScreen, openLanguage }) {
+function ProfileScreen({ t, lang, setLang, village, setScreen, openLanguage, authUser }) {
   return (
     <div className="p-5">
       <h1 className="text-xl font-bold text-stone-900 mb-4 pt-2">{t.profileTitle}</h1>
@@ -1060,7 +1222,7 @@ function ProfileScreen({ t, lang, setLang, village, setScreen, openLanguage }) {
         <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-3">
           <User className="w-8 h-8" />
         </div>
-        <div className="font-bold text-lg">{lang === 'en' ? 'Guest User' : 'अतिथि उपयोगकर्ता'}</div>
+        <div className="font-bold text-lg">{authUser?.phoneNumber || (lang === 'en' ? 'Guest User' : 'अतिथि उपयोगकर्ता')}</div>
         <div className="text-xs text-orange-100 mt-0.5 flex items-center gap-1">
           <MapPin className="w-3 h-3" /> {lang === 'en' ? village?.name : village?.hindi}, PIN {village?.pin}
         </div>
@@ -1078,11 +1240,15 @@ function ProfileScreen({ t, lang, setLang, village, setScreen, openLanguage }) {
           <span className="flex-1 text-left font-medium text-stone-900 text-sm">{t.changeVillage}</span>
           <ChevronRight className="w-4 h-4 text-stone-400" />
         </button>
-        <button className="w-full p-4 flex items-center gap-3 active:bg-stone-50">
+        <button className="w-full p-4 flex items-center gap-3 border-b border-stone-100 active:bg-stone-50">
           <Phone className="w-5 h-5 text-orange-600" />
           <span className="flex-1 text-left font-medium text-stone-900 text-sm">{t.helpline}</span>
           <span className="text-xs text-stone-500">+91 9XXXXXXXXX</span>
           <ChevronRight className="w-4 h-4 text-stone-400" />
+        </button>
+        <button onClick={() => signOut(auth)} className="w-full p-4 flex items-center gap-3 active:bg-stone-50 text-red-500">
+          <LogOut className="w-5 h-5" />
+          <span className="flex-1 text-left font-medium text-sm">{lang === 'en' ? 'Sign Out' : 'साइन आउट'}</span>
         </button>
       </div>
 
