@@ -7,9 +7,10 @@ import {
 } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, addDoc, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, Timestamp, query, where } from 'firebase/firestore';
 import AuthScreen from './AuthScreen';
 import AdminPanel from './AdminPanel';
+import ShopkeeperPanel from './ShopkeeperPanel';
 
 const ADMIN_EMAILS = ['itvertuvm@gmail.com'];
 
@@ -197,8 +198,20 @@ export default function App() {
   const [lang, setLang] = useState('en');
   const [village, setVillage] = useState(null);
 
+  const [shopkeeperShop, setShopkeeperShop] = useState(undefined); // undefined=checking, null=not shopkeeper
+
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, user => setAuthUser(user ?? null));
+    const unsub = onAuthStateChanged(auth, async user => {
+      setAuthUser(user ?? null);
+      if (user && !ADMIN_EMAILS.includes(user.email)) {
+        // Check if this email is a shopkeeper
+        const snap = await getDocs(collection(db, 'shops'));
+        const match = snap.docs.find(d => d.data().shopkeeperEmail === user.email);
+        setShopkeeperShop(match ? { id: match.id, ...match.data() } : null);
+      } else {
+        setShopkeeperShop(null);
+      }
+    });
     return unsub;
   }, []);
   const [cart, setCart] = useState({}); // { productId: { product, shopId, qty } }
@@ -298,6 +311,19 @@ export default function App() {
   }
   if (ADMIN_EMAILS.includes(authUser.email)) {
     return <AdminPanel user={authUser} />;
+  }
+  if (shopkeeperShop === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-500 to-rose-600">
+        <div className="text-white text-center">
+          <div className="text-5xl mb-4">🛒</div>
+          <div className="font-bold text-xl">Loading...</div>
+        </div>
+      </div>
+    );
+  }
+  if (shopkeeperShop) {
+    return <ShopkeeperPanel user={authUser} shop={shopkeeperShop} />;
   }
 
   // ===== RENDER PHONE FRAME =====

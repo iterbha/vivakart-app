@@ -44,7 +44,7 @@ export default function AdminPanel({ user }) {
   const [selectedShop, setSelectedShop] = useState(null);
   const [products, setProducts] = useState([]);
   const [expandedOrder, setExpandedOrder] = useState(null);
-  const [shopForm, setShopForm] = useState({ name: '', hindi: '', type: '', address: '', pin: '', emoji: '🏪', tag: '' });
+  const [shopForm, setShopForm] = useState({ name: '', hindi: '', type: '', address: '', pin: '', emoji: '🏪', tag: '', shopkeeperEmail: '' });
   const [productForm, setProductForm] = useState({ name: '', unit: '', price: '', emoji: '📦', cat: '' });
   const [loading, setLoading] = useState(false);
 
@@ -242,13 +242,14 @@ export default function AdminPanel({ user }) {
                   { key: 'pin', placeholder: 'PIN Code' },
                   { key: 'emoji', placeholder: 'Emoji (e.g. 🏪)' },
                   { key: 'tag', placeholder: 'Tag (e.g. Popular)' },
-                ].map(({ key, placeholder }) => (
+                  { key: 'shopkeeperEmail', placeholder: 'Shopkeeper Gmail (for login)', span: true },
+                ].map(({ key, placeholder, span }) => (
                   <input
                     key={key}
                     value={shopForm[key]}
                     onChange={e => setShopForm(f => ({ ...f, [key]: e.target.value }))}
                     placeholder={placeholder}
-                    className="border border-stone-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400"
+                    className={`border border-stone-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 ${span ? 'col-span-2' : ''}`}
                   />
                 ))}
               </div>
