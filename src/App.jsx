@@ -801,18 +801,22 @@ function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDet
     }
     const options = {
       key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-      amount: cartTotal * 100, // paise
+      amount: cartTotal * 100,
       currency: 'INR',
       name: 'VIVAKART',
-      description: `Order from ${village?.name || 'your village'}`,
-      image: 'https://via.placeholder.com/150/FF6B00/FFFFFF?text=V',
+      description: `Grocery order - ${village?.name || 'Jamui'}`,
       prefill: {
-        name: authUser?.displayName || '',
+        name: authUser?.displayName || 'Customer',
         email: authUser?.email || '',
-        contact: authUser?.phoneNumber || '',
+        contact: '9999999999',
+      },
+      notes: {
+        address: orderDetails.address,
+        village: village?.name || '',
       },
       theme: { color: '#f97316' },
       handler: function (response) {
+        setPayLoading(false);
         onPlace({ paymentId: response.razorpay_payment_id, paymentMode: 'online' });
       },
       modal: {
@@ -820,12 +824,11 @@ function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDet
       },
     };
     const rzp = new window.Razorpay(options);
-    rzp.on('payment.failed', () => {
+    rzp.on('payment.failed', function () {
       setPayError('Payment failed. Please try again or use COD.');
       setPayLoading(false);
     });
     rzp.open();
-    setPayLoading(false);
   };
 
   return (
@@ -1005,26 +1008,34 @@ function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDet
           </div>
         </div>
 
-        {orderDetails.paymentMode === 'cod' ? (
-          <button
-            onClick={() => onPlace({})}
-            disabled={!canPlace}
-            className={`w-full font-bold py-4 rounded-2xl text-sm shadow-lg flex items-center justify-center gap-2 transition ${canPlace ? 'bg-orange-500 text-white active:bg-orange-600 active:scale-95' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
-          >
-            💵 {lang === 'en' ? 'Place Order (Pay on Delivery)' : 'ऑर्डर करें (डिलीवरी पर भुगतान)'}
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        ) : (
-          <button
-            onClick={handlePayNow}
-            disabled={!canPlace || payLoading}
-            className={`w-full font-bold py-4 rounded-2xl text-sm shadow-lg flex items-center justify-center gap-2 transition ${canPlace ? 'bg-gradient-to-r from-orange-500 to-rose-600 text-white active:scale-95' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
-          >
-            {payLoading ? <><Loader className="w-4 h-4 animate-spin" /> {lang === 'en' ? 'Opening Payment...' : 'भुगतान खुल रहा है...'}</> : <>💳 {lang === 'en' ? `Pay ₹${cartTotal} Now` : `₹${cartTotal} अभी भुगतान करें`} <ArrowRight className="w-4 h-4" /></>}
-          </button>
-        )}
+        {/* Online Pay Button */}
+        <button
+          onClick={handlePayNow}
+          disabled={!canPlace || payLoading}
+          className={`w-full font-bold py-4 rounded-2xl text-sm shadow-lg flex items-center justify-center gap-2 transition mb-3 ${canPlace ? 'bg-gradient-to-r from-orange-500 to-rose-600 text-white active:scale-95' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
+        >
+          {payLoading
+            ? <><Loader className="w-4 h-4 animate-spin" /> {lang === 'en' ? 'Opening Payment...' : 'भुगतान खुल रहा है...'}</>
+            : <>💳 {lang === 'en' ? `Pay ₹${cartTotal} Online` : `₹${cartTotal} ऑनलाइन भुगतान करें`} <ArrowRight className="w-4 h-4" /></>}
+        </button>
 
-        {payError && <p className="text-xs text-red-500 text-center mt-2">{payError}</p>}
+        {payError && <p className="text-xs text-red-500 text-center mb-2">{payError}</p>}
+
+        {/* OR Divider */}
+        <div className="flex items-center gap-2 my-2">
+          <div className="flex-1 h-px bg-stone-200" />
+          <span className="text-xs text-stone-400 font-semibold">{lang === 'en' ? 'OR' : 'या'}</span>
+          <div className="flex-1 h-px bg-stone-200" />
+        </div>
+
+        {/* COD Button — always visible */}
+        <button
+          onClick={() => onPlace({ paymentMode: 'cod' })}
+          disabled={!canPlace}
+          className={`w-full font-bold py-4 rounded-2xl text-sm border-2 flex items-center justify-center gap-2 transition ${canPlace ? 'border-stone-300 bg-white text-stone-800 active:bg-stone-50 active:scale-95' : 'border-stone-200 bg-stone-50 text-stone-400 cursor-not-allowed'}`}
+        >
+          💵 {lang === 'en' ? `Pay ₹${cartTotal} Cash on Delivery` : `₹${cartTotal} डिलीवरी पर नकद भुगतान`}
+        </button>
       </div>
       {!canPlace && (
         <p className="text-xs text-rose-600 text-center">
