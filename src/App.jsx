@@ -209,7 +209,7 @@ export default function App() {
     functionDate: '',
     guestCount: '',
     address: '',
-    paymentMode: 'upi',
+    paymentMode: 'cod',
   });
   const [completedOrder, setCompletedOrder] = useState(null);
   const [orderHistory, setOrderHistory] = useState([]);
@@ -928,114 +928,62 @@ function CheckoutScreen({ t, lang, cartTotal, village, orderDetails, setOrderDet
         <label className="font-bold text-stone-900 text-sm mb-3 block">{t.paymentMode}</label>
         <div className="space-y-2">
           {[
-            { id: 'upi', label: t.upi, emoji: '📱' },
-            { id: 'card', label: t.card, emoji: '💳' },
-            { id: 'netbanking', label: t.netbanking, emoji: '🏦' },
-            { id: 'cod', label: t.cod, emoji: '💵' },
+            { id: 'cod',        label: lang === 'en' ? 'Cash on Delivery' : 'डिलीवरी पर नकद', emoji: '💵', sub: lang === 'en' ? 'Pay when your order arrives' : 'सामान आने पर भुगतान करें' },
+            { id: 'upi',        label: lang === 'en' ? 'UPI / PhonePe / GPay' : 'UPI / फोनपे / गूगलपे', emoji: '📱', sub: lang === 'en' ? 'Pay instantly via UPI' : 'UPI से तुरंत भुगतान करें' },
+            { id: 'card',       label: lang === 'en' ? 'Credit / Debit Card' : 'क्रेडिट / डेबिट कार्ड', emoji: '💳', sub: lang === 'en' ? 'Visa, Mastercard, Rupay' : 'वीजा, मास्टरकार्ड, रुपे' },
+            { id: 'netbanking', label: lang === 'en' ? 'Net Banking' : 'नेट बैंकिंग', emoji: '🏦', sub: lang === 'en' ? 'All major banks supported' : 'सभी बड़े बैंक उपलब्ध' },
           ].map(p => (
-            <div key={p.id}>
-              <button
-                onClick={() => setOrderDetails(prev => ({ ...prev, paymentMode: p.id }))}
-                className={`w-full p-3 rounded-xl border-2 flex items-center gap-3 transition ${orderDetails.paymentMode === p.id ? 'border-orange-500 bg-orange-50' : 'border-stone-200 bg-white'}`}
-              >
-                <span className="text-2xl">{p.emoji}</span>
-                <span className="font-semibold text-sm text-stone-900 flex-1 text-left">{p.label}</span>
-                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${orderDetails.paymentMode === p.id ? 'border-orange-500 bg-orange-500' : 'border-stone-300'}`}>
-                  {orderDetails.paymentMode === p.id && <div className="w-2 h-2 bg-white rounded-full" />}
-                </div>
-              </button>
-
-              {/* Payment details shown when selected */}
-              {orderDetails.paymentMode === p.id && (
-                <div className="mt-2 mx-1 p-3 bg-orange-50 border border-orange-200 rounded-xl text-sm">
-                  {p.id === 'upi' && (
-                    <div className="text-center">
-                      <div className="text-xs text-stone-500 mb-1">{lang === 'en' ? 'Pay to UPI ID' : 'UPI ID पर भेजें'}</div>
-                      <div className="font-bold text-orange-700 text-base tracking-wide">vivakart@upi</div>
-                      <div className="text-xs text-stone-500 mt-1">{lang === 'en' ? 'Use PhonePe, GPay, Paytm or any UPI app' : 'PhonePe, GPay, Paytm या कोई UPI ऐप'}</div>
-                      <div className="mt-2 bg-white border border-orange-200 rounded-lg p-2 text-xs text-stone-600">
-                        {lang === 'en' ? '⚠️ Pay after placing order. Share screenshot to delivery agent.' : '⚠️ ऑर्डर के बाद भुगतान करें। डिलीवरी एजेंट को स्क्रीनशॉट दिखाएं।'}
-                      </div>
-                    </div>
-                  )}
-                  {p.id === 'card' && (
-                    <div className="space-y-2">
-                      <div className="text-xs text-stone-500 font-semibold">{lang === 'en' ? 'Card payment at delivery' : 'डिलीवरी पर कार्ड पेमेंट'}</div>
-                      <div className="bg-white border border-orange-200 rounded-lg p-2 text-xs text-stone-600">
-                        {lang === 'en'
-                          ? '💳 Our delivery agent carries a card machine (POS). Have your card ready at delivery.'
-                          : '💳 डिलीवरी एजेंट के पास कार्ड मशीन होगी। डिलीवरी पर कार्ड तैयार रखें।'}
-                      </div>
-                    </div>
-                  )}
-                  {p.id === 'netbanking' && (
-                    <div className="text-center">
-                      <div className="text-xs text-stone-500 mb-1">{lang === 'en' ? 'Bank Transfer Details' : 'बैंक ट्रांसफर विवरण'}</div>
-                      <div className="bg-white border border-orange-200 rounded-lg p-3 text-left space-y-1">
-                        <div className="flex justify-between text-xs"><span className="text-stone-500">{lang === 'en' ? 'Account Name' : 'खाता नाम'}</span><span className="font-bold text-stone-800">VIVAKART</span></div>
-                        <div className="flex justify-between text-xs"><span className="text-stone-500">{lang === 'en' ? 'Account No.' : 'खाता नं.'}</span><span className="font-bold text-stone-800">XXXXXXXXXXXX</span></div>
-                        <div className="flex justify-between text-xs"><span className="text-stone-500">IFSC</span><span className="font-bold text-stone-800">XXXXXXXXX</span></div>
-                        <div className="flex justify-between text-xs"><span className="text-stone-500">{lang === 'en' ? 'Bank' : 'बैंक'}</span><span className="font-bold text-stone-800">SBI</span></div>
-                      </div>
-                      <div className="text-xs text-stone-500 mt-2">{lang === 'en' ? 'Transfer & share UTR number to confirm order' : 'UTR नंबर शेयर करें'}</div>
-                    </div>
-                  )}
-                  {p.id === 'cod' && (
-                    <div className="flex items-start gap-2">
-                      <span className="text-lg">💵</span>
-                      <div>
-                        <div className="font-semibold text-stone-800 text-xs mb-0.5">{lang === 'en' ? 'Pay cash on delivery' : 'डिलीवरी पर नकद भुगतान'}</div>
-                        <div className="text-xs text-stone-500">{lang === 'en' ? 'Keep exact change ready. Amount: ₹' + cartTotal : 'सटीक राशि तैयार रखें। राशि: ₹' + cartTotal}</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <button
+              key={p.id}
+              onClick={() => setOrderDetails(prev => ({ ...prev, paymentMode: p.id }))}
+              className={`w-full p-3.5 rounded-xl border-2 flex items-center gap-3 transition text-left ${orderDetails.paymentMode === p.id ? 'border-orange-500 bg-orange-50' : 'border-stone-200 bg-white'}`}
+            >
+              <span className="text-2xl">{p.emoji}</span>
+              <div className="flex-1">
+                <div className="font-semibold text-sm text-stone-900">{p.label}</div>
+                <div className="text-xs text-stone-500 mt-0.5">{p.sub}</div>
+              </div>
+              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${orderDetails.paymentMode === p.id ? 'border-orange-500 bg-orange-500' : 'border-stone-300'}`}>
+                {orderDetails.paymentMode === p.id && <div className="w-2 h-2 bg-white rounded-full" />}
+              </div>
+            </button>
           ))}
         </div>
       </div>
 
-      {/* Total + Place Order */}
+      {/* Total + Action Button */}
       <div className="bg-white border border-stone-200 rounded-2xl p-4 mb-3">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <div className="text-xs text-stone-500">{t.cartTotal}</div>
-            <div className="font-bold text-xl text-stone-900">₹{cartTotal}</div>
+            <div className="font-bold text-2xl text-stone-900">₹{cartTotal}</div>
           </div>
           <div className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-lg">
-            {lang === 'en' ? 'FREE Delivery' : 'मुफ़्त डिलीवरी'}
+            {lang === 'en' ? '🚚 FREE Delivery' : '🚚 मुफ़्त डिलीवरी'}
           </div>
         </div>
 
-        {/* Online Pay Button */}
-        <button
-          onClick={handlePayNow}
-          disabled={!canPlace || payLoading}
-          className={`w-full font-bold py-4 rounded-2xl text-sm shadow-lg flex items-center justify-center gap-2 transition mb-3 ${canPlace ? 'bg-gradient-to-r from-orange-500 to-rose-600 text-white active:scale-95' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
-        >
-          {payLoading
-            ? <><Loader className="w-4 h-4 animate-spin" /> {lang === 'en' ? 'Opening Payment...' : 'भुगतान खुल रहा है...'}</>
-            : <>💳 {lang === 'en' ? `Pay ₹${cartTotal} Online` : `₹${cartTotal} ऑनलाइन भुगतान करें`} <ArrowRight className="w-4 h-4" /></>}
-        </button>
+        {orderDetails.paymentMode === 'cod' ? (
+          <button
+            onClick={() => onPlace({ paymentMode: 'cod' })}
+            disabled={!canPlace}
+            className={`w-full font-bold py-4 rounded-2xl text-base flex items-center justify-center gap-2 transition ${canPlace ? 'bg-orange-500 text-white active:bg-orange-600 active:scale-95 shadow-lg' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
+          >
+            💵 {lang === 'en' ? 'Place Order — Pay on Delivery' : 'ऑर्डर करें — डिलीवरी पर भुगतान'} <ArrowRight className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={handlePayNow}
+            disabled={!canPlace || payLoading}
+            className={`w-full font-bold py-4 rounded-2xl text-base flex items-center justify-center gap-2 transition ${canPlace ? 'bg-gradient-to-r from-orange-500 to-rose-600 text-white active:scale-95 shadow-lg' : 'bg-stone-200 text-stone-400 cursor-not-allowed'}`}
+          >
+            {payLoading
+              ? <><Loader className="w-4 h-4 animate-spin" /> {lang === 'en' ? 'Opening Payment...' : 'खुल रहा है...'}</>
+              : <>💳 {lang === 'en' ? `Pay ₹${cartTotal} Now` : `₹${cartTotal} अभी भुगतान करें`} <ArrowRight className="w-4 h-4" /></>}
+          </button>
+        )}
 
-        {payError && <p className="text-xs text-red-500 text-center mb-2">{payError}</p>}
-
-        {/* OR Divider */}
-        <div className="flex items-center gap-2 my-2">
-          <div className="flex-1 h-px bg-stone-200" />
-          <span className="text-xs text-stone-400 font-semibold">{lang === 'en' ? 'OR' : 'या'}</span>
-          <div className="flex-1 h-px bg-stone-200" />
-        </div>
-
-        {/* COD Button — always visible */}
-        <button
-          onClick={() => onPlace({ paymentMode: 'cod' })}
-          disabled={!canPlace}
-          className={`w-full font-bold py-4 rounded-2xl text-sm border-2 flex items-center justify-center gap-2 transition ${canPlace ? 'border-stone-300 bg-white text-stone-800 active:bg-stone-50 active:scale-95' : 'border-stone-200 bg-stone-50 text-stone-400 cursor-not-allowed'}`}
-        >
-          💵 {lang === 'en' ? `Pay ₹${cartTotal} Cash on Delivery` : `₹${cartTotal} डिलीवरी पर नकद भुगतान`}
-        </button>
+        {payError && <p className="text-xs text-red-500 text-center mt-2">{payError}</p>}
       </div>
       {!canPlace && (
         <p className="text-xs text-rose-600 text-center">
